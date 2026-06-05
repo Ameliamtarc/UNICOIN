@@ -26,7 +26,7 @@ class Apunte:
     tamano_bytes:    int          # tamaño del archivo en bytes
     id:              str          = field(default_factory=lambda: str(uuid.uuid4()))
     estado:          EstadoApunte = field(default=EstadoApunte.PENDIENTE)
-    fecha_subida:    datetime     = field(default_factory=datetime.now)
+    fecha_subida:    datetime     = field(default_factory=lambda: datetime.now().astimezone())
     motivo_rechazo:  Optional[str] = None
 
     @invariant(lambda self: bool(self.titulo and self.titulo.strip()), "El título no puede estar vacío.")

@@ -5,6 +5,7 @@ Abrir:    http://localhost:5000
 """
 
 from flask import Flask, request, jsonify, render_template_string, send_file
+from datetime import datetime
 import os
 from pathlib import Path
 import re
@@ -25,7 +26,8 @@ from src import database
 app = Flask(__name__)
 APP_ROOT = Path(__file__).resolve().parent
 UPLOAD_DIR = Path(os.environ.get("UNICOIN_UPLOAD_DIR", APP_ROOT / "uploads"))
-LOGO_PATH = APP_ROOT / "templates" / "Gemini_Generated_Image_xz19epxz19epxz19.png"
+HEADER_LOGO_PATH = APP_ROOT / "templates" / "imagen_logo_visual_arriba.png"
+FULL_LOGO_PATH = APP_ROOT / "templates" / "imagen_completa.png"
 
 
 def configurar_profesor_desde_entorno() -> None:
@@ -106,6 +108,22 @@ def _resolver_ruta_archivo(ruta_guardada: str) -> Path:
         raise PermissionError("La ruta del archivo no esta dentro de uploads.")
     return ruta
 
+
+def _fecha_local_legible(fecha: datetime) -> str:
+    if fecha.tzinfo is None:
+        fecha = fecha.astimezone()
+    else:
+        fecha = fecha.astimezone()
+    return fecha.strftime("%d/%m/%Y %H:%M")
+
+
+def _nombre_archivo_visible(ruta_guardada: str) -> str:
+    nombre = Path(ruta_guardada).name
+    partes = nombre.split("_", 1)
+    if len(partes) == 2 and len(partes[0]) == 32 and all(c in "0123456789abcdef" for c in partes[0].lower()):
+        return partes[1]
+    return nombre
+
 HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -121,11 +139,11 @@ HTML = """<!DOCTYPE html>
   header h1{font-size:22px;font-weight:750;margin:0;letter-spacing:0}
   header span{font-size:13px;opacity:.9}
   .brand{display:flex;align-items:center;gap:12px}
-  .brand-logo{width:48px;height:48px;border-radius:8px;background:white;object-fit:cover;object-position:78% center;border:1px solid rgba(255,255,255,.75);box-shadow:0 8px 20px rgba(0,0,0,.16)}
+  .brand-logo{width:48px;height:48px;border-radius:8px;background:white;object-fit:contain;object-position:center;border:1px solid rgba(255,255,255,.75);box-shadow:0 8px 20px rgba(0,0,0,.16)}
   .session{display:flex;align-items:center;gap:10px;font-size:13px;flex-wrap:wrap;justify-content:flex-end}
   .session-main{font-weight:700}
   .scope-pill{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.2);border-radius:999px;padding:5px 10px;color:white;font-size:12px}
-  .login-page{max-width:1120px;margin:0 auto;padding:28px;display:grid;grid-template-columns:minmax(320px,410px) 1fr;gap:18px;align-items:start}
+  .login-page{max-width:1120px;margin:0 auto;padding:28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px;align-items:start}
   .app-shell{display:none}
   .app-shell.active{display:block}
   .login-page.hidden{display:none}
@@ -139,8 +157,9 @@ HTML = """<!DOCTYPE html>
   .card{background:white;border:1px solid var(--line);border-radius:8px;padding:18px;margin-bottom:16px;box-shadow:0 10px 30px rgba(23,32,51,.06)}
   .card-title{font-size:13px;font-weight:800;color:#465163;text-transform:uppercase;letter-spacing:.04em;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
   .logo-showcase{display:flex;align-items:center;justify-content:center;background:#eef4fb;border:1px solid #dfe8f3;border-radius:8px;min-height:210px;margin:-2px -2px 16px;overflow:hidden}
-  .logo-showcase img{width:min(100%,620px);display:block}
+  .logo-showcase img{width:min(100%,420px);display:block}
   .login-hint{font-size:14px;color:var(--muted);margin:-2px 0 16px;line-height:1.45}
+  .login-page > .card:first-child{min-height:430px}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
   .field{margin-bottom:12px}
   .field label{display:block;font-size:13px;color:#465163;margin-bottom:5px;font-weight:700}
@@ -194,7 +213,7 @@ HTML = """<!DOCTYPE html>
   .toast.show{opacity:1}
   .toast.ok{background:#e8f5e9;color:#24734f;border:1px solid #a5d6a7}
   .toast.err{background:#fff0f0;color:var(--danger);border:1px solid #ef9a9a}
-  .demo-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .demo-list{display:grid;grid-template-columns:1fr;gap:10px}
   .demo-account{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #edf1f5;background:#fbfcfe;border-radius:8px;min-width:0}
   .demo-account code{font-size:12px;background:#f0f3f7;padding:2px 5px;border-radius:4px;word-break:break-all}
   .account-main{font-size:14px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -216,7 +235,7 @@ HTML = """<!DOCTYPE html>
 
 <header>
   <div class="brand">
-    <img src="/logo.png" class="brand-logo" alt="Logo UniCoin">
+    <img src="/logo-header.png" class="brand-logo" alt="Logo UniCoin">
     <div>
       <h1>UniCoin</h1>
       <span>Validacion de apuntes y recompensas</span>
@@ -246,13 +265,17 @@ HTML = """<!DOCTYPE html>
     </form>
   </section>
 
-  <section class="card">
-    <div class="logo-showcase">
-      <img src="/logo.png" alt="Logo UniCoin">
-    </div>
-    <div class="card-title">Cuentas demo en SQLite</div>
-    <div id="demo-users"><div class="empty">Cargando usuarios...</div></div>
-  </section>
+	  <section class="card">
+	    <div class="logo-showcase">
+	      <img src="/logo-completo.png" alt="Logo UniCoin">
+	    </div>
+	    <div class="card-title">Cuentas demo en SQLite</div>
+	    <div id="demo-users"><div class="empty">Cargando usuarios...</div></div>
+	    <div class="card-title" style="margin-top:16px">Intento de ataque controlado</div>
+	    <p class="login-hint">Mallory no esta matriculada en ninguna asignatura e intenta subir un apunte a Ciberseguridad.</p>
+	    <button class="btn btn-danger btn-sm" type="button" onclick="simularAtaqueMallory()">Simular ataque</button>
+	    <div id="attack-status" class="apunte-meta" style="margin-top:8px">Sin ejecutar.</div>
+	  </section>
 </main>
 
 <main id="app-shell" class="app-shell">
@@ -379,7 +402,24 @@ async function loadDemoUsers(){
       </div>
       <div class="account-actions"><button class="btn btn-secondary btn-sm" onclick="useDemo('${esc(u.email)}','${esc(u.role)}','${esc(u.demo_password || '')}')">Usar</button></div>
     </div>`).join('')}</div>`;
-}
+	}
+
+	async function simularAtaqueMallory(){
+	  const status=document.getElementById('attack-status');
+	  status.textContent='Ejecutando intento de subida no autorizada...';
+	  status.style.color='#718095';
+	  const r=await fetch('/api/demo-ataque',{method:'POST'});
+	  const j=await r.json();
+	  if(j.bloqueado){
+	    status.textContent=`Bloqueado: ${j.error}`;
+	    status.style.color='#24734f';
+	    toast('Ataque bloqueado por control de matricula.');
+	    return;
+	  }
+	  status.textContent=j.error || 'El ataque no fue bloqueado.';
+	  status.style.color='#c62828';
+	  toast(status.textContent,'err');
+	}
 
 async function loginUsuario(){
   const data={
@@ -470,7 +510,7 @@ async function subirApunte(){
   const r=await fetch('/api/subir',{method:'POST',body:data});
   const j=await r.json();
   if(j.ok){
-    document.getElementById('e-upload-status').textContent=`Detectado: ${j.tipo_archivo}. Guardado en ${j.ruta_archivo}`;
+    document.getElementById('e-upload-status').textContent=`Detectado: ${j.tipo_archivo}. Archivo: ${j.nombre_archivo}`;
     inputArchivo.value='';
     toast('Archivo subido. Queda pendiente de revision.');
     loadMisApuntes();
@@ -494,7 +534,7 @@ function renderApunteAlumno(a){
       <div class="apunte-info">
         <div class="apunte-title">${esc(a.titulo)}</div>
         <div class="chip-row"><span class="chip subject">${esc(a.asignatura)}</span><span class="chip">${(a.tamano_bytes/1024).toFixed(0)} KB</span></div>
-        <div class="apunte-meta">${esc(a.archivo)}</div>
+        <div class="apunte-meta">${esc(a.nombre_archivo)} · Entregado: ${esc(a.fecha_subida)}</div>
         ${a.motivo_rechazo?`<div class="apunte-meta" style="color:#c62828;margin-top:3px">Motivo: ${esc(a.motivo_rechazo)}</div>`:''}
       </div>
       <span class="badge ${badgeClass(a.estado)}">${esc(a.estado)}</span>
@@ -516,7 +556,7 @@ async function loadTareasProfesor(){
       <div class="apunte-info">
         <div class="apunte-title">${esc(a.titulo)}</div>
         <div class="chip-row"><span class="chip role">${esc(a.autor)}</span><span class="chip subject">${esc(a.asignatura)}</span><span class="chip">${(a.tamano_bytes/1024).toFixed(0)} KB</span></div>
-        <div class="apunte-meta">${esc(a.archivo)}</div>
+        <div class="apunte-meta">${esc(a.nombre_archivo)} · Entregado: ${esc(a.fecha_subida)}</div>
         ${a.motivo_rechazo?`<div class="apunte-meta" style="color:#c62828;margin-top:3px">Motivo: ${esc(a.motivo_rechazo)}</div>`:''}
         <div class="motivo-row" id="motivo-${esc(a.id)}">
           <input type="text" id="motivo-text-${esc(a.id)}" placeholder="Motivo del rechazo">
@@ -657,9 +697,14 @@ def index():
     return render_template_string(HTML)
 
 
-@app.route("/logo.png")
-def logo():
-    return send_file(LOGO_PATH, mimetype="image/png", max_age=3600)
+@app.route("/logo-header.png")
+def logo_header():
+    return send_file(HEADER_LOGO_PATH, mimetype="image/png", max_age=3600)
+
+
+@app.route("/logo-completo.png")
+def logo_completo():
+    return send_file(FULL_LOGO_PATH, mimetype="image/png", max_age=3600)
 
 
 @app.route("/api/login", methods=["POST"])
@@ -696,7 +741,7 @@ def api_subir():
             return jsonify(
                 {
                     "ok": True,
-                    "ruta_archivo": ruta_archivo,
+                    "nombre_archivo": _nombre_archivo_visible(ruta_archivo),
                     "tipo_archivo": tipo_archivo,
                     "tamano_bytes": tamano_bytes,
                 }
@@ -714,6 +759,36 @@ def api_subir():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/demo-ataque", methods=["POST"])
+def api_demo_ataque():
+    try:
+        ap = Apunte(
+            titulo="Intento malicioso",
+            archivo="malicioso.pdf",
+            autor="mallory@uma.es",
+            asignatura="Ciberseguridad",
+            tamano_bytes=1024,
+        )
+        subir_apunte("mallory@uma.es", ap)
+        return jsonify(
+            {
+                "ok": False,
+                "bloqueado": False,
+                "error": "El intento no fue bloqueado.",
+            }
+        ), 500
+    except PermissionError as e:
+        return jsonify(
+            {
+                "ok": False,
+                "bloqueado": True,
+                "usuario": "mallory@uma.es",
+                "asignatura": "Ciberseguridad",
+                "error": str(e),
+            }
+        )
 
 
 @app.route("/api/login-profesor", methods=["POST"])
@@ -749,10 +824,11 @@ def api_apuntes():
         {
             "id": a.id,
             "titulo": a.titulo,
-            "archivo": a.archivo,
+            "nombre_archivo": _nombre_archivo_visible(a.archivo),
             "autor": a.autor,
             "asignatura": a.asignatura,
             "tamano_bytes": a.tamano_bytes,
+            "fecha_subida": _fecha_local_legible(a.fecha_subida),
             "estado": a.estado.value,
             "motivo_rechazo": a.motivo_rechazo,
         }

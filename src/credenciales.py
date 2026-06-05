@@ -466,6 +466,7 @@ class GestorCredencialesUniCoin:
         self._asegurar_profesor_demo("prof-software@uma.es", ["Software"])
         self._asegurar_estudiante_demo("alice@uma.es", ["Ciberseguridad", "Software"])
         self._asegurar_estudiante_demo("bob@uma.es", ["Software"])
+        self._asegurar_estudiante_demo("mallory@uma.es", [])
         return database.list_demo_users()
 
     def listar_usuarios(self) -> list[dict]:

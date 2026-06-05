@@ -9,6 +9,7 @@ se lanza cuando `sonar-scanner` esta instalado.
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SONAR_CONFIG = ROOT / "sonar-project.properties"
+LOCAL_SONAR_SCANNER = ROOT / ".tools" / "sonar-scanner" / "bin" / "sonar-scanner"
 REQUIRED_SONAR_KEYS = {
     "sonar.projectKey",
     "sonar.projectName",
@@ -27,9 +29,12 @@ REQUIRED_SONAR_KEYS = {
 }
 
 
-def run(command: list[str]) -> int:
+def run(command: list[str], env: dict[str, str] | None = None) -> int:
     print(f"$ {' '.join(command)}", flush=True)
-    completed = subprocess.run(command, cwd=ROOT, check=False)
+    runtime_env = os.environ.copy()
+    if env:
+        runtime_env.update(env)
+    completed = subprocess.run(command, cwd=ROOT, env=runtime_env, check=False)
     return completed.returncode
 
 
@@ -82,7 +87,7 @@ def run_bandit() -> int:
 
 
 def run_sonar(require_sonar: bool) -> int:
-    scanner = shutil.which("sonar-scanner")
+    scanner = str(LOCAL_SONAR_SCANNER) if LOCAL_SONAR_SCANNER.exists() else shutil.which("sonar-scanner")
     if scanner is None:
         message = "sonar-scanner no esta instalado; se omite el analisis SonarQube."
         if require_sonar:
@@ -95,7 +100,7 @@ def run_sonar(require_sonar: bool) -> int:
         )
         return 0
 
-    return run([scanner])
+    return run([scanner], env={"SONAR_USER_HOME": str(ROOT / ".sonar")})
 
 
 def main() -> int:

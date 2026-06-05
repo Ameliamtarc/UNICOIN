@@ -309,8 +309,10 @@ class TestGestorCredencialesSeguro(unittest.TestCase):
         self.assertIn("prof-software@uma.es", emails)
         self.assertIn("alice@uma.es", emails)
         self.assertIn("bob@uma.es", emails)
+        self.assertIn("mallory@uma.es", emails)
         self.assertEqual(asignaturas["alice@uma.es"], {"Ciberseguridad", "Software"})
         self.assertEqual(asignaturas["bob@uma.es"], {"Software"})
+        self.assertEqual(asignaturas["mallory@uma.es"], set())
         self.assertEqual(asignaturas["prof@uma.es"], {"Ciberseguridad"})
         self.assertEqual(asignaturas["prof-software@uma.es"], {"Software"})
         self.assertTrue(all(usuario["password_hash"] for usuario in usuarios))
@@ -477,16 +479,26 @@ class TestIntegracionSeguridad(unittest.TestCase):
                 content_type="multipart/form-data",
             )
 
-            ruta = Path(respuesta.json["ruta_archivo"])
+            apunte_guardado = database.fetchone(
+                "SELECT archivo FROM apuntes WHERE titulo = ?",
+                ("Entrega con archivo real",),
+            )
+            ruta = Path(apunte_guardado["archivo"])
             if not ruta.is_absolute():
                 ruta = app_module.APP_ROOT / ruta
 
             self.assertTrue(respuesta.json["ok"])
             self.assertEqual(respuesta.json["tipo_archivo"], "PDF")
+            self.assertNotIn("ruta_archivo", respuesta.json)
+            self.assertEqual(respuesta.json["nombre_archivo"], "entrega.pdf")
+            self.assertNotIn("/", respuesta.json["nombre_archivo"])
             self.assertTrue(ruta.exists())
             self.assertGreater(respuesta.json["tamano_bytes"], 0)
 
-            apunte_id = client.get("/api/apuntes?email=alice@uma.es").json[0]["id"]
+            apunte_api = client.get("/api/apuntes?email=alice@uma.es").json[0]
+            apunte_id = apunte_api["id"]
+            self.assertNotIn("archivo", apunte_api)
+            self.assertEqual(apunte_api["nombre_archivo"], respuesta.json["nombre_archivo"])
             GESTOR_CREDENCIALES.registrar_profesor("prof@uma.es", "ClaveSegura!2026")
             login = client.post(
                 "/api/login-profesor",
@@ -623,9 +635,82 @@ class TestIntegracionSeguridad(unittest.TestCase):
         apunte = database.fetchone("SELECT titulo FROM apuntes WHERE titulo = ?", (payload,))
 
         self.assertTrue(respuesta.json["ok"])
-        self.assertEqual(usuarios["total"], 4)
+        self.assertEqual(usuarios["total"], 5)
         self.assertIsNotNone(apunte)
         self.assertEqual(apunte["titulo"], payload)
+
+    def test_usuario_malicioso_no_escala_privilegios_ni_accede_recursos(self):
+        """Un usuario tercero no puede obtener rol ni operar sobre recursos ajenos."""
+        from app import app as flask_app
+
+        client = flask_app.test_client()
+        passwords = {
+            u["email"]: u["demo_password"]
+            for u in GESTOR_CREDENCIALES.crear_usuarios_demo_si_vacio()
+        }
+
+        login_mallory = client.post(
+            "/api/login",
+            json={
+                "email": "mallory@uma.es",
+                "password": passwords["mallory@uma.es"],
+                "role": "estudiante",
+            },
+        )
+        escalada_rol = client.post(
+            "/api/login",
+            json={
+                "email": "mallory@uma.es",
+                "password": passwords["mallory@uma.es"],
+                "role": "profesor",
+            },
+        )
+        subida_ajena = client.post(
+            "/api/subir",
+            json={
+                "email": "mallory@uma.es",
+                "titulo": "Intento malicioso",
+                "archivo": "malicioso.pdf",
+                "asignatura": "Ciberseguridad",
+                "tamano_kb": 1,
+            },
+        )
+        demo_ataque = client.post("/api/demo-ataque")
+        subida_alice = client.post(
+            "/api/subir",
+            json={
+                "email": "alice@uma.es",
+                "titulo": "Apunte legitimo",
+                "archivo": "legitimo.pdf",
+                "asignatura": "Ciberseguridad",
+                "tamano_kb": 1,
+            },
+        )
+        apunte_id = client.get("/api/apuntes?email=alice@uma.es").json[0]["id"]
+        listado_profesor = client.get(
+            "/api/apuntes",
+            query_string={"sesion": "mallory-session-forjada"},
+        )
+        aprobar_forjado = client.post(
+            "/api/aprobar",
+            json={"id": apunte_id, "sesion": "mallory-session-forjada"},
+        )
+
+        self.assertTrue(login_mallory.json["ok"])
+        self.assertEqual(login_mallory.json["role"], "estudiante")
+        self.assertEqual(login_mallory.json["asignaturas"], [])
+        self.assertFalse(login_mallory.json["sesion"])
+        self.assertFalse(escalada_rol.json["ok"])
+        self.assertFalse(subida_ajena.json["ok"])
+        self.assertIn("matriculado", subida_ajena.json["error"])
+        self.assertFalse(demo_ataque.json["ok"])
+        self.assertTrue(demo_ataque.json["bloqueado"])
+        self.assertIn("matriculado", demo_ataque.json["error"])
+        self.assertTrue(subida_alice.json["ok"])
+        self.assertEqual(listado_profesor.status_code, 403)
+        self.assertFalse(listado_profesor.json["ok"])
+        self.assertFalse(aprobar_forjado.json["ok"])
+        self.assertIn("Sesion", aprobar_forjado.json["error"])
 
     def test_api_profesor_solo_ve_su_asignatura(self):
         """Cada profesor solo lista, abre y valida apuntes de su asignatura."""
